@@ -1,0 +1,183 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Big Mac Affordability Tracker</title>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse for CSV parsing -->
+    <script src="papaparse/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+
+        th {
+            background: #f4f4f4;
+        }
+
+        #chartContainer {
+            width: 100%;
+            height: 400px;
+            margin-top: 40px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Big Mac Affordability Tracker</h1>
+    <p>This tool shows you how many BigMac's you would have been able to buy from your monthly
+    salery over the last few years.</p>
+
+    <label for="countrySelect">Select Country:</label>
+    <select id="countrySelect"></select>
+
+    <table id="salaryTable">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Monthly Salary</th>
+                <th>Big Macs Affordable</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><input type="date" class="date-input" /></td>
+                <td><input type="number" class="salary-input" /></td>
+                <td class="result-cell">-</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <button id="addRowBtn">Add Row</button>
+    <button id="plotBtn">Create Graph</button>
+
+    <div id="chartContainer">
+        <canvas id="affordChart"></canvas>
+    </div>
+
+    <script>
+        const csvUrl = 'https://raw.githubusercontent.com/TheEconomist/big-mac-data/refs/heads/master/source-data/big-mac-source-data-v2.csv';
+        let bigMacData = [];
+
+        // Fetch and parse CSV
+        Papa.parse(csvUrl, {
+        download: true,
+        header: true,
+        complete: (results) => {
+        bigMacData = results.data.map(d => ({
+        ...d,
+        date: d.date // stored as yyyy-mm-dd
+        }));
+        populateCountries();
+        }
+        });
+
+        function populateCountries() {
+        const select = document.getElementById('countrySelect');
+        const countries = Array.from(new Set(bigMacData.map(d => d.name))).sort();
+        countries.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+        });
+        }
+
+        document.getElementById('addRowBtn').addEventListener('click', () => {
+        const tbody = document.querySelector('#salaryTable tbody');
+        const row = document.createElement('tr');
+        row.innerHTML = `
+        <td><input type="date" class="date-input" /></td>
+        <td><input type="number" class="salary-input" /></td>
+        <td class="result-cell">-</td>
+        `;
+        tbody.appendChild(row);
+        });
+
+        // Helper: find entry closest to given year-month
+        function findClosestEntry(country, targetDate) {
+        const entries = bigMacData.filter(d => d.name === country && d.local_price).map(d => ({
+        date: new Date(d.date),
+        price: parseFloat(d.local_price)
+        }));
+        if (!entries.length) return null;
+        let closest = entries[0];
+        let minDiff = Math.abs(entries[0].date - targetDate);
+        entries.forEach(e => {
+        const diff = Math.abs(e.date - targetDate);
+        if (diff < minDiff) {
+        minDiff = diff;
+        closest = e;
+        }
+        });
+        return closest;
+        }
+
+        function calculateRow(row, country) {
+        const dateStr = row.querySelector('.date-input').value;
+        const salary = parseFloat(row.querySelector('.salary-input').value);
+        if (!dateStr || isNaN(salary)) return null;
+        const targetDate = new Date(dateStr + 'T00:00:00');
+        const entry = findClosestEntry(country, targetDate);
+        if (!entry) return null;
+        const bigmacs = salary / entry.price;
+        return { date: dateStr, bigmacs };
+        }
+
+        document.getElementById('plotBtn').addEventListener('click', () => {
+        const country = document.getElementById('countrySelect').value;
+        const rows = document.querySelectorAll('#salaryTable tbody tr');
+        const dataPoints = [];
+
+        rows.forEach(row => {
+        const result = calculateRow(row, country);
+        const cell = row.querySelector('.result-cell');
+        if (result) {
+        cell.textContent = result.bigmacs.toFixed(2);
+        dataPoints.push(result);
+        } else {
+        cell.textContent = '-';
+        }
+        });
+
+        dataPoints.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const ctx = document.getElementById('affordChart').getContext('2d');
+        try{
+            if (window.affordChart) window.affordChart.destroy();
+        }catch{}
+        window.affordChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+        labels: dataPoints.map(dp => dp.date),
+        datasets: [{
+        label: 'Big Macs Affordable',
+        data: dataPoints.map(dp => dp.bigmacs),
+        fill: false,
+        tension: 0.1
+        }]
+        },
+        options: {
+        scales: {
+        x: { display: true, title: { display: true, text: 'Date' } },
+        y: { display: true, title: { display: true, text: 'Big Macs' }, beginAtZero: true }
+        }
+        }
+        });
+        });
+    </script>
+</body>
+</html>
